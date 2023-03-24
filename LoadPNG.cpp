@@ -1,5 +1,7 @@
 #include "LoadPNG.h"
 
+
+
 const wchar_t* getMap(BYTE level) {
 	switch (level)
 	{

@@ -3,20 +3,22 @@
 
 #include "framework.h"
 #include "MapExanimaC.h"
-#include "string"
 #include <thread>
 #include "printDebug.h"
 #include <locale>
 #include "LoadPNG.h"
-#include <gdiplus.h>
 #include <windowsx.h>
+#include <d2d1.h>
+
+
+
 
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
 processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 using namespace std;
-using namespace Gdiplus;
+
 #define MAX_LOADSTRING 100
 
 // Globale Variablen:
@@ -24,6 +26,8 @@ HINSTANCE hInst;                                // Aktuelle Instanz
 WCHAR szTitle[MAX_LOADSTRING];                  // Titelleistentext
 WCHAR szWindowClass[MAX_LOADSTRING];           // Der Klassenname des Hauptfensters.
 HWND hWnd;                                     // Der Handle des Hauptfensters
+
+int winSizeWidth=300, winSizeHeight=300;
 // Globale APP Exanima Variable
 BOOL b_readMemory = TRUE;
 BOOL isCornerMap = TRUE;
@@ -34,9 +38,15 @@ int tmpmpos[] = { 0, 0 };
 int map_size[] = { 300, 300 };
 int x_maxSize = 300;
 float scale = 1.0f;
-Image* Image_map;
-Image* Image_posFig;
 
+//Globale Variable für Direct2D
+
+ID2D1Bitmap* bmp_Map;
+ID2D1Bitmap* bmp_PosFig;
+IWICImagingFactory* wicFactory = NULL;
+ID2D1Factory* D2DFactory = NULL;
+
+ID2D1HwndRenderTarget* renderTarget = NULL;
 
 HWND mainWindowH;
 
@@ -51,25 +61,33 @@ void                ReadMemoryOfExanima();
 thread*             ptr_t_ReadMemoryOfExanima;
 void                HideWindowBorders(HWND);
 
-IStream* CreateStreamOnResource(LPCTSTR , LPCTSTR );
+ID2D1Bitmap*        lbmpfromFile(const wchar_t*);
 
-
-
+void                UpdateWindowProp();
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
                      _In_ LPWSTR    lpCmdLine,
                      _In_ int       nCmdShow)
 {
-    //Startup GDIPLUS
-    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
-    ULONG_PTR gdiplusToken;
-    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+    //CREATE DIRECT2D Factory
+    HRESULT CoInitializeExHR = CoInitializeEx(NULL, 0);
+
+    HRESULT CoCreateInstanceHR = CoCreateInstance(
+        CLSID_WICImagingFactory,
+        NULL,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&wicFactory)
+    );
+
+    HRESULT D2D1CreateFactoryHR = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &D2DFactory);
     
+
     // Globale Zeichenfolgen initialisieren
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_MAPEXANIMAC, szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);   
+
 
     // Anwendungsinitialisierung ausführen:
     if (!InitInstance (hInstance, nCmdShow))
@@ -80,7 +98,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     // TODO: Hier Code einfügen.    
     thread t_ReadMemoryOfExanima(ReadMemoryOfExanima);
     ptr_t_ReadMemoryOfExanima = &t_ReadMemoryOfExanima;
-
 
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_MAPEXANIMAC));
    
@@ -96,7 +113,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
     }
 ;   ptr_t_ReadMemoryOfExanima->join();
-    GdiplusShutdown(gdiplusToken);
     return (int) msg.wParam;
 }
 
@@ -149,30 +165,43 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
        szTitle,
        WS_POPUP,
        CW_USEDEFAULT, CW_USEDEFAULT,
-       300, 300,
+       winSizeWidth, winSizeHeight,
        NULL,
        NULL,
        hInstance,
        NULL
    );
-
-
+   
    
    if (!hWnd)
    {
       return FALSE;
    }
    mainWindowH = hWnd;
-  
-   //Image_map.FromFile(getMap(mapLVL));
+
+   // Create a D2D render target properties
+   D2D1_RENDER_TARGET_PROPERTIES renderTargetProperties = D2D1::RenderTargetProperties();
+   D2D1_SIZE_U size = D2D1::SizeU(winSizeWidth, winSizeHeight);
+   D2DFactory->CreateHwndRenderTarget(
+       renderTargetProperties,
+       D2D1::HwndRenderTargetProperties(hWnd, size),
+       &renderTarget
+   );
+   
+
+   //lade die Map und die posfigure
+   bmp_Map = lbmpfromFile(getMap(mapLVL));
+   //if (bmp_Map) {
+   //    map_size[0] = bmp_Map->GetPixelSize().width;
+   //    map_size[1] = bmp_Map->GetPixelSize().height;
+   //}
+   bmp_PosFig = lbmpfromFile(L"assets\\PosFig.png");
 
    ShowWindow(hWnd, nCmdShow);
    UpdateWindow(hWnd);
    SetWindowPos(hWnd, HWND_TOPMOST, 0 , 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
 
-
-
-
+   
    return TRUE;
 }
 
@@ -188,8 +217,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {    
-    PAINTSTRUCT ps;
-    HDC hdc;
+    
    
     //OutputIntToHex(message);
     switch (message)
@@ -206,17 +234,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         else {
            
         }
-        
-
-
         break;
     case WM_CREATE:
         SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
         SetLayeredWindowAttributes(hWnd, 0, (255 * 80) / 100, LWA_ALPHA);
-
-        Image_map = Bitmap::FromFile(getMap(mapLVL));
-        Image_posFig = Bitmap::FromFile(L"assets\\posFig.png");
-
+        
         break;
     case WM_LBUTTONDOWN:
         //for dragging not only by the title, but also by any part of the window 
@@ -233,7 +255,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;
     case WM_MOUSEMOVE:
         if (!isCornerMap && wParam == 0x0001) {
-
+            
             int xPos = GET_X_LPARAM(lParam);
             int yPos = GET_Y_LPARAM(lParam);
             xPos = xPos - tmpmpos[0];
@@ -243,21 +265,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             if ((-map_size[1]+500) < (yPos + Map_rec[1]) && (yPos + Map_rec[1]) < 500)
                 Map_rec[1] = yPos + Map_rec[1];            
             tmpmpos[0] = GET_X_LPARAM(lParam);
-            tmpmpos[1] = GET_Y_LPARAM(lParam);   
+            tmpmpos[1] = GET_Y_LPARAM(lParam);           
         }
         break;
     case WM_LBUTTONDBLCLK:       
         isCornerMap = !isCornerMap;
-        if (isCornerMap) {
-            SetWindowPos(mainWindowH, NULL, 0, 0, 300, 300, SWP_NOZORDER | SWP_NOACTIVATE);            
-            Map_rec[0] = 0;
-            Map_rec[1] = 0;
-        }
-        else {
-            SetWindowPos(mainWindowH, NULL, 400, 0, 900, 900, SWP_NOZORDER | SWP_NOACTIVATE);   
-            Map_rec[0] = (int)(map_size[0] / -2);
-            Map_rec[1] = (int)(map_size[1] / -2);
-        }
+        UpdateWindowProp();
         break;
     
     case WM_MOUSEWHEEL:
@@ -267,53 +280,37 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         ScreenToClient(hWnd, &pt);
 
         //rein ZOOMEN
-        if (GET_WHEEL_DELTA_WPARAM(wParam) > 0 && map_size[0] < x_maxSize-100) {
-
-            //(-Map_rec[0] + pt.x)
-
+        if (GET_WHEEL_DELTA_WPARAM(wParam) > 0 && map_size[0] < x_maxSize) {           
             map_size[0] *= 1.4;
             map_size[1] *= 1.4;
             Map_rec[0] = (int)(Map_rec[0] - ((-Map_rec[0] + pt.x) * 0.4));
             Map_rec[1] = (int)(Map_rec[1] - ((-Map_rec[1] + pt.y) * 0.4));
-
-        }
-            
+        }            
         else {
             if (GET_WHEEL_DELTA_WPARAM(wParam) < 0 && 1000 < map_size[0]) {
                 map_size[0] /= 1.4;
                 map_size[1] /= 1.4;
                 Map_rec[0] = (int)(Map_rec[0] + ((-Map_rec[0] + pt.x) * 0.286));
                 Map_rec[1] = (int)(Map_rec[1] + ((-Map_rec[1] + pt.y) * 0.286));
-            }
-                
-        }
-        
-        debug_w((float)GET_WHEEL_DELTA_WPARAM(wParam));
-       
-
-        //debug_w((float)pt.x-450);
-        //debug_w((float)pt.y-450);
-     
+            }                
+        }             
         break;
     
     case WM_PAINT:
     {
-       hdc = BeginPaint(hWnd, &ps);
+        PAINTSTRUCT ps;
+        HDC hdc;
+        hdc = BeginPaint(hWnd, &ps);
+        // Draws an image and scales it to the current window size
+        if (renderTarget) {
+            renderTarget->BeginDraw();
+            renderTarget->Clear();
 
-
-       HDC hdcMem = CreateCompatibleDC(hdc);
-       HBITMAP hbmMem = CreateCompatibleBitmap(hdc, map_size[0], map_size[1]);
-        SelectObject(hdcMem, hbmMem);
-
-        Gdiplus::Graphics graphics(hdcMem);
-        Rect destinationRect(0, 0, 900, 900);
-        graphics.DrawImage(Image_map, destinationRect, Map_rec[0], Map_rec[1], map_size[0], map_size[1], UnitPixel);
-        graphics.DrawImage(Image_posFig, (int)(Map_rec[0] + 150 - x_pos), (int)(Map_rec[1] + 150 - y_pos), 21, 50);
-
-        BitBlt(hdc, 0, 0, map_size[0], map_size[1], hdcMem, 0, 0, SRCCOPY);
-
-        DeleteObject(hbmMem);
-        DeleteDC(hdcMem);
+            if(bmp_Map)    renderTarget->DrawBitmap(bmp_Map, D2D1::RectF(Map_rec[0], Map_rec[1], Map_rec[0]+map_size[0], Map_rec[1]+map_size[1]));
+            if(bmp_PosFig) renderTarget->DrawBitmap(bmp_PosFig, D2D1::RectF(-x_pos, -y_pos, -x_pos+20, -y_pos+51));
+            
+            renderTarget->EndDraw();
+        }
         EndPaint(hWnd, &ps);
     }
         break;
@@ -396,40 +393,41 @@ void ReadMemoryOfExanima() {
     }
     else {        
         float i = 0;
-        mapLVL = 1;
+        mapLVL = 1;      
         while (i < 10000 && b_readMemory) {
-
+            
             if (true) {
-                if (i == 30) {
+                if (i == 100) {
                     mapLVL = 2;
-                    Image_map = Image::FromFile(getMap(mapLVL));
-                    map_size[0] = Image_map->GetWidth();                     
+                    bmp_Map = lbmpfromFile(getMap(mapLVL));
+                    map_size[0] = bmp_Map->GetPixelSize().width;
+                    map_size[1] = bmp_Map->GetPixelSize().height;
                     x_maxSize = map_size[0];
-                    map_size[1] = Image_map->GetHeight();
-                    debug_w((float)map_size[1]);
+                                    
                 }
            
                 if (i == 900) {
-                    mapLVL = 7;     
-                    Image_map = Image::FromFile(getMap(mapLVL));
-                    map_size[0] = Image_map->GetWidth();
-                    x_maxSize = map_size[0];
-                    map_size[1] = Image_map->GetHeight();
+                    mapLVL = 7; 
+                    bmp_Map = lbmpfromFile(getMap(mapLVL));
+                    map_size[0] = bmp_Map->GetPixelSize().width;
+                    map_size[1] = bmp_Map->GetPixelSize().height;
+                    x_maxSize = map_size[0];                   
+                   
                 }
                 if (i == 3900) {
                     mapLVL = 4;   
-                    Image_map = Image::FromFile(getMap(mapLVL));
-                    map_size[0] = Image_map->GetWidth();
-                    x_maxSize = map_size[0];
-                    map_size[1] = Image_map->GetHeight();
+                  //  Image_map = Image::FromFile(getMap(mapLVL));
+                  //  map_size[0] = Image_map->GetWidth();
+                  //  x_maxSize = map_size[0];
+                  //  map_size[1] = Image_map->GetHeight();
                 }
             }
             
-            x_pos = -i*3;
-            y_pos = -i*3;  
+            x_pos = -i;
+            y_pos = -i;  
             PostMessage(mainWindowH, IDM_MY_MSG_UPDATE_UI, 0, 0);
             InvalidateRect(hWnd, NULL, FALSE);            
-            this_thread::sleep_for(chrono::milliseconds(50));
+            this_thread::sleep_for(chrono::milliseconds(10));
            i++;
             
         }
@@ -443,5 +441,48 @@ void HideWindowBorders(HWND hWnd)
     SetWindowLong(hWnd, GWL_STYLE, (style & ~(WS_CAPTION | WS_SIZEBOX))); //removes caption and the sizebox from current style
 }
 
+ID2D1Bitmap* lbmpfromFile(const wchar_t* file) {
+    ID2D1Bitmap* bmp = NULL;
+    IWICBitmapDecoder* wicDecoder = NULL;    
+    IWICFormatConverter* wicConverter = NULL;
+    IWICBitmapFrameDecode* wicFrame = NULL;
 
+    wicFactory->CreateDecoderFromFilename(file, NULL, GENERIC_READ, WICDecodeMetadataCacheOnLoad, &wicDecoder);
+   
+    wicDecoder->GetFrame(0, &wicFrame);
+    
+    wicFactory->CreateFormatConverter(&wicConverter);
+    wicConverter->Initialize(
+        wicFrame,
+        GUID_WICPixelFormat32bppPBGRA,
+        WICBitmapDitherTypeNone,
+        NULL,
+        0.0,
+        WICBitmapPaletteTypeCustom);
+    
+    if(renderTarget)
+    renderTarget->CreateBitmapFromWicBitmap(wicConverter,NULL,&bmp);
 
+    if(wicDecoder) wicDecoder->Release();
+    if(wicConverter) wicConverter->Release();
+    if(wicFrame) wicFrame->Release();
+
+    return bmp;
+}
+
+void UpdateWindowProp() {
+    
+    if (isCornerMap) {
+        winSizeHeight = 300, winSizeWidth = 300;
+        SetWindowPos(mainWindowH, NULL, 0, 0, winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+        Map_rec[0] = 0;
+        Map_rec[1] = 0;
+    }
+    else {
+        winSizeHeight = 900, winSizeWidth = 900;
+        SetWindowPos(mainWindowH, NULL, 400, 0, winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+        Map_rec[0] = (int)(map_size[0] / -2);
+        Map_rec[1] = (int)(map_size[1] / -2);
+    }    
+    renderTarget->Resize(D2D1::SizeU(winSizeWidth, winSizeHeight));
+}
