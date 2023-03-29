@@ -12,9 +12,12 @@ void OutputIntToHex(UINT x) {
     OutputDebugStringA(LPCSTR("\n"));
 }
 void debug_w(const char s[]) {
-
     OutputDebugStringA(LPCSTR(s));
     OutputDebugStringA(LPCSTR("\n"));
+}
+void debug_w(const wchar_t* s) {
+    OutputDebugStringW(LPCWSTR(s));
+    OutputDebugStringW(LPCWSTR(L"\n"));
 }
 void debug_w(const string s) {
 
@@ -28,6 +31,18 @@ void debug_w(const DWORD s) {
     OutputDebugStringA(LPCSTR("\n"));
 }
 void debug_w(const float s) {
+    std::ostringstream out;
+    out << s;
+    OutputDebugStringA(LPCSTR(out.str().c_str()));
+    OutputDebugStringA(LPCSTR("\n"));
+}
+void debug_w(const unsigned long long s) {
+    std::ostringstream out;
+    out << s;
+    OutputDebugStringA(LPCSTR(out.str().c_str()));
+    OutputDebugStringA(LPCSTR("\n"));
+}
+void debug_w(const int s) {
     std::ostringstream out;
     out << s;
     OutputDebugStringA(LPCSTR(out.str().c_str()));

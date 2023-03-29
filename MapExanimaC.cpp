@@ -9,6 +9,7 @@
 #include "LoadPNG.h"
 #include <windowsx.h>
 #include <d2d1.h>
+#include <filesystem>
 
 
 
@@ -22,21 +23,28 @@ using namespace std;
 #define MAX_LOADSTRING 100
 
 // Globale Variablen:
+int monitor_width;
+int monitor_height;
+
+
+
 HINSTANCE hInst;                                // Aktuelle Instanz
 WCHAR szTitle[MAX_LOADSTRING];                  // Titelleistentext
 WCHAR szWindowClass[MAX_LOADSTRING];           // Der Klassenname des Hauptfensters.
 HWND hWnd;                                     // Der Handle des Hauptfensters
 
 int winSizeWidth=300, winSizeHeight=300;
+int windowPos[] = { 0,0 };
 // Globale APP Exanima Variable
 BOOL b_readMemory = TRUE;
 BOOL isCornerMap = TRUE;
 BYTE mapLVL = 0;
 float x_pos, y_pos;
-int Map_rec[] = { 0, 0 };
+float Map_rec[] = { 0, 0 };
+float PosFig_rec[] = { 140, 100 };
 int tmpmpos[] = { 0, 0 };
-int map_size[] = { 300, 300 };
-int x_maxSize = 300;
+float map_size[] = { 300, 300 };
+float x_maxSize = 300.f;
 float scale = 1.0f;
 
 //Globale Variable für Direct2D
@@ -60,10 +68,10 @@ LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 void                ReadMemoryOfExanima();
 thread*             ptr_t_ReadMemoryOfExanima;
 void                HideWindowBorders(HWND);
-
 ID2D1Bitmap*        lbmpfromFile(const wchar_t*);
-
 void                UpdateWindowProp();
+
+LRESULT CALLBACK keyboard_hook(const int ,const WPARAM ,const LPARAM);
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -82,11 +90,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
 
     HRESULT D2D1CreateFactoryHR = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &D2DFactory);
     
+   
 
     // Globale Zeichenfolgen initialisieren
     LoadStringW(hInstance, IDS_APP_TITLE, szTitle, MAX_LOADSTRING);
     LoadStringW(hInstance, IDC_MAPEXANIMAC, szWindowClass, MAX_LOADSTRING);
     MyRegisterClass(hInstance);   
+
 
 
     // Anwendungsinitialisierung ausführen:
@@ -99,10 +109,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     thread t_ReadMemoryOfExanima(ReadMemoryOfExanima);
     ptr_t_ReadMemoryOfExanima = &t_ReadMemoryOfExanima;
 
+    //SetHOOK
+    debug_w("starte hook !!");
+    HHOOK hHook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard_hook, hInstance, 0);
+    wchar_t buf[256];
+    FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        buf, (sizeof(buf) / sizeof(wchar_t)), NULL);
+    
+    debug_w(buf);
+
+
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_MAPEXANIMAC));
    
     MSG msg;
-
+    
+    
     // Hauptnachrichtenschleife:
     while (GetMessage(&msg, nullptr, 0, 0))
     {
@@ -113,6 +135,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
         }
     }
 ;   ptr_t_ReadMemoryOfExanima->join();
+    UnhookWindowsHookEx(hHook);
     return (int) msg.wParam;
 }
 
@@ -197,11 +220,13 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    //}
    bmp_PosFig = lbmpfromFile(L"assets\\PosFig.png");
 
+   
+  
+
    ShowWindow(hWnd, nCmdShow);
    UpdateWindow(hWnd);
    SetWindowPos(hWnd, HWND_TOPMOST, 0 , 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-
-   
+  
    return TRUE;
 }
 
@@ -227,13 +252,17 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         if (isCornerMap) {
             if (mapLVL > 1) {                
-                Map_rec[0] = x_pos - 20;
-                Map_rec[1] = y_pos - 51;
+                Map_rec[0] = (x_pos*scale+145);
+                Map_rec[1] = (y_pos*scale+140);
             }
         }
         else {
-           
+            if (mapLVL > 1) {
+                PosFig_rec[0] = (( - x_pos-5) * scale + Map_rec[0]);
+                PosFig_rec[1] = (( - y_pos-40) * scale + Map_rec[1]);
+            }
         }
+        InvalidateRect(hWnd, NULL, FALSE);
         break;
     case WM_CREATE:
         SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
@@ -260,19 +289,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             int yPos = GET_Y_LPARAM(lParam);
             xPos = xPos - tmpmpos[0];
             yPos = yPos - tmpmpos[1];
-            if ((-map_size[0]+500) < (xPos + Map_rec[0]) && (xPos + Map_rec[0]) < 500)
+            //if ((-map_size[0]+1500) < (xPos + Map_rec[0]) && (xPos + Map_rec[0]) < 1500)
                 Map_rec[0] = xPos + Map_rec[0];
-            if ((-map_size[1]+500) < (yPos + Map_rec[1]) && (yPos + Map_rec[1]) < 500)
+            //if ((-map_size[1]+1500) < (yPos + Map_rec[1]) && (yPos + Map_rec[1]) < 1500)
                 Map_rec[1] = yPos + Map_rec[1];            
             tmpmpos[0] = GET_X_LPARAM(lParam);
             tmpmpos[1] = GET_Y_LPARAM(lParam);           
         }
         break;
     case WM_LBUTTONDBLCLK:       
+        if (isCornerMap) {
+            RECT rec;
+            GetWindowRect(hWnd, &rec);
+            windowPos[0] = rec.left;
+            windowPos[1] = rec.top;
+        }
         isCornerMap = !isCornerMap;
         UpdateWindowProp();
         break;
-    
+    case WM_RBUTTONUP:
+        if (!isCornerMap) {
+            isCornerMap = !isCornerMap;
+            UpdateWindowProp();
+        }
+        break;
     case WM_MOUSEWHEEL:
         POINT pt;
         pt.x = GET_X_LPARAM(lParam);
@@ -280,20 +320,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         ScreenToClient(hWnd, &pt);
 
         //rein ZOOMEN
-        if (GET_WHEEL_DELTA_WPARAM(wParam) > 0 && map_size[0] < x_maxSize) {           
-            map_size[0] *= 1.4;
-            map_size[1] *= 1.4;
-            Map_rec[0] = (int)(Map_rec[0] - ((-Map_rec[0] + pt.x) * 0.4));
-            Map_rec[1] = (int)(Map_rec[1] - ((-Map_rec[1] + pt.y) * 0.4));
+        if (GET_WHEEL_DELTA_WPARAM(wParam) > 0 && map_size[0] <= x_maxSize+3000) {      
+            scale *= 1.1f;
+            map_size[0] *= 1.1f;
+            map_size[1] *= 1.1f;
+            Map_rec[0] = (int)(Map_rec[0] - ((-Map_rec[0] + pt.x) * 0.1));
+            Map_rec[1] = (int)(Map_rec[1] - ((-Map_rec[1] + pt.y) * 0.1));
         }            
         else {
-            if (GET_WHEEL_DELTA_WPARAM(wParam) < 0 && 1000 < map_size[0]) {
-                map_size[0] /= 1.4;
-                map_size[1] /= 1.4;
-                Map_rec[0] = (int)(Map_rec[0] + ((-Map_rec[0] + pt.x) * 0.286));
-                Map_rec[1] = (int)(Map_rec[1] + ((-Map_rec[1] + pt.y) * 0.286));
+            if (GET_WHEEL_DELTA_WPARAM(wParam) < 0 && 600 < map_size[0]) {
+                scale /= 1.1f;
+                map_size[0] /= 1.1f;
+                map_size[1] /= 1.1f;
+                Map_rec[0] = (int)(Map_rec[0] + ((-Map_rec[0] + pt.x)/11 ));
+                Map_rec[1] = (int)(Map_rec[1] + ((-Map_rec[1] + pt.y)/11 ));
             }                
-        }             
+        } 
         break;
     
     case WM_PAINT:
@@ -307,7 +349,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             renderTarget->Clear();
 
             if(bmp_Map)    renderTarget->DrawBitmap(bmp_Map, D2D1::RectF(Map_rec[0], Map_rec[1], Map_rec[0]+map_size[0], Map_rec[1]+map_size[1]));
-            if(bmp_PosFig) renderTarget->DrawBitmap(bmp_PosFig, D2D1::RectF(-x_pos, -y_pos, -x_pos+20, -y_pos+51));
+            if(bmp_PosFig) renderTarget->DrawBitmap(bmp_PosFig, D2D1::RectF(PosFig_rec[0], PosFig_rec[1], PosFig_rec[0] + 20, PosFig_rec[1] + 51));
             
             renderTarget->EndDraw();
         }
@@ -319,10 +361,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         break;   
     case WM_ERASEBKGND:
         return 1;
-    case WM_RBUTTONUP:
-       
-        b_readMemory = FALSE;        
-        DestroyWindow(hWnd);
+    case WM_CHAR:
+        if (wParam == VK_ESCAPE) {
+            b_readMemory = FALSE;
+            DestroyWindow(hWnd);
+       }
+        
         break;         
      default:        
         return DefWindowProc(hWnd, message, wParam, lParam);
@@ -333,35 +377,50 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 void ReadMemoryOfExanima() {
    
     debug_w("Thread started!");
-    HWND hWindow = FindWindow(NULL, L"Exanima");
+    HWND hWindow = FindWindowEx(0,0, L"Exanima",0);
     DWORD processID;
     
     if (hWindow)
     {
+
+
         GetWindowThreadProcessId(hWindow, &processID);
         HANDLE hProcHandle = OpenProcess(PROCESS_VM_READ, FALSE, processID);
-
-        HideWindowBorders(hWindow);
+                
         //TODO change fullscreen on resolution value
-        SetWindowPos(hWindow, HWND_NOTOPMOST, 0, 0, 1920, 1080, SWP_NOSENDCHANGING);
-        SendMessage(hWindow, WM_EXITSIZEMOVE, 0, 0);
+        HMONITOR monitor = MonitorFromWindow(hWindow, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO info;
+        info.cbSize = sizeof(MONITORINFO);
+        GetMonitorInfo(monitor, &info);
 
-       
+        monitor_width = info.rcMonitor.right - info.rcMonitor.left;
+        monitor_height = info.rcMonitor.bottom - info.rcMonitor.top;
+
+        if (isToFullscreen()) {
+            HideWindowBorders(hWindow);            
+            SetWindowPos(hWindow, HWND_NOTOPMOST, info.rcMonitor.left, 0, monitor_width, monitor_height, SWP_NOSENDCHANGING);
+            SendMessage(hWindow, WM_EXITSIZEMOVE, 0, 0);
+        }        
 
         char chBufferMapLVL = 0;
 
         while (b_readMemory) {
             this_thread::sleep_for(chrono::milliseconds(20));
-            
-            
-            ReadProcessMemory(hProcHandle, ADDR_MAP_LVL, &chBufferMapLVL, sizeof(chBufferMapLVL), 0);
-
+                       
+            if (ReadProcessMemory(hProcHandle, ADDR_MAP_LVL, &chBufferMapLVL, sizeof(chBufferMapLVL), 0) == 0)                 
+                exit(0);
+           
             if (chBufferMapLVL > 1)
             {
                
                 if (chBufferMapLVL != mapLVL) {
                     //CHANGE LVL
-                    mapLVL = chBufferMapLVL;     
+                    mapLVL = chBufferMapLVL;  
+                    bmp_Map = lbmpfromFile(getMap(mapLVL));
+                    map_size[0] = bmp_Map->GetPixelSize().width * scale;
+                    map_size[1] = bmp_Map->GetPixelSize().height * scale;
+                    x_maxSize = map_size[0];
+                    //scale = 1.f;
                 }
 
                 float flBufferX = 0.f;
@@ -378,11 +437,7 @@ void ReadMemoryOfExanima() {
                 x_pos = (x_pos + getMapOffsetX(mapLVL)) * -getMapScale(mapLVL);
                 y_pos = (y_pos + getMapOffsetY(mapLVL)) * -getMapScale(mapLVL);
                 
-
-
-                //*msg = L"(" + to_wstring(x_pos) + L"/" + to_wstring(y_pos) + L" - MapID:[" + to_wstring(chBufferMapLVL) + L"]";
                 PostMessage(mainWindowH, IDM_MY_MSG_UPDATE_UI, 0, 0);
-
             }
             else {
                 PostMessage(mainWindowH, IDM_MY_MSG_UPDATE_UI, 0, 0);
@@ -391,7 +446,16 @@ void ReadMemoryOfExanima() {
             
         }        
     }
-    else {        
+    else {      
+
+        HMONITOR monitor = MonitorFromWindow(mainWindowH, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO info;
+        info.cbSize = sizeof(MONITORINFO);
+        GetMonitorInfo(monitor, &info);
+
+        monitor_width = info.rcMonitor.right - info.rcMonitor.left;
+        monitor_height = info.rcMonitor.bottom - info.rcMonitor.top;
+
         float i = 0;
         mapLVL = 1;      
         while (i < 10000 && b_readMemory) {
@@ -406,28 +470,24 @@ void ReadMemoryOfExanima() {
                                     
                 }
            
-                if (i == 900) {
+                if (i == 9000) {
                     mapLVL = 7; 
                     bmp_Map = lbmpfromFile(getMap(mapLVL));
-                    map_size[0] = bmp_Map->GetPixelSize().width;
-                    map_size[1] = bmp_Map->GetPixelSize().height;
+                    map_size[0] = (float)bmp_Map->GetPixelSize().width;
+                    map_size[1] = (float)bmp_Map->GetPixelSize().height;
                     x_maxSize = map_size[0];                   
                    
-                }
-                if (i == 3900) {
-                    mapLVL = 4;   
-                  //  Image_map = Image::FromFile(getMap(mapLVL));
-                  //  map_size[0] = Image_map->GetWidth();
-                  //  x_maxSize = map_size[0];
-                  //  map_size[1] = Image_map->GetHeight();
-                }
+                }               
+            }
+            if (i < 800) {
+                x_pos = -i;
+                y_pos = -i;
             }
             
-            x_pos = -i;
-            y_pos = -i;  
+
             PostMessage(mainWindowH, IDM_MY_MSG_UPDATE_UI, 0, 0);
-            InvalidateRect(hWnd, NULL, FALSE);            
-            this_thread::sleep_for(chrono::milliseconds(10));
+                        
+            this_thread::sleep_for(chrono::milliseconds(33));
            i++;
             
         }
@@ -474,15 +534,88 @@ void UpdateWindowProp() {
     
     if (isCornerMap) {
         winSizeHeight = 300, winSizeWidth = 300;
-        SetWindowPos(mainWindowH, NULL, 0, 0, winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(mainWindowH, NULL, windowPos[0], windowPos[1], winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
         Map_rec[0] = 0;
         Map_rec[1] = 0;
+        PosFig_rec[0] = 140;
+        PosFig_rec[1] = 100;
     }
-    else {
-        winSizeHeight = 900, winSizeWidth = 900;
-        SetWindowPos(mainWindowH, NULL, 400, 0, winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
-        Map_rec[0] = (int)(map_size[0] / -2);
-        Map_rec[1] = (int)(map_size[1] / -2);
+    else {        
+        winSizeHeight = monitor_height, winSizeWidth = monitor_width;
+        SetWindowPos(mainWindowH, NULL, 0, 0, winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+        
+        Map_rec[0] = (x_pos - windowPos[0]  + winSizeWidth/2) * scale;
+        Map_rec[1] = (y_pos - windowPos[1]  + winSizeHeight/2) * scale;
+        
     }    
     renderTarget->Resize(D2D1::SizeU(winSizeWidth, winSizeHeight));
+}
+
+LRESULT CALLBACK keyboard_hook(int code, WPARAM wParam, LPARAM lParam) {
+    
+    if (wParam == WM_KEYDOWN && GetPrivateProfileInt(
+        L"AppSettings",
+        L"quickSave",
+        NULL,
+        L".\\assets\\config.ini")) {
+        
+
+        KBDLLHOOKSTRUCT* s = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+        if (s->vkCode == VK_F5) {
+            string directoryExanima;
+            if (getPathExanima().length() > 1) 
+                directoryExanima = getPathExanima();   
+            else {
+                char* pValue;
+                size_t len;
+                _dupenv_s(&pValue, &len, "APPDATA");
+                if (pValue) {
+                    directoryExanima = pValue;
+                    directoryExanima += +"\\Exanima";
+                } 
+            }
+            string directoryExanimaBackup = directoryExanima + "\\backUP";
+            std::filesystem::create_directories(directoryExanimaBackup);
+            for (const auto& entry : filesystem::directory_iterator(directoryExanima)) {
+                string fileString = entry.path().string();
+                if (fileString.find(".rsg") < fileString.length()) {
+                    string filebackup = directoryExanimaBackup + "\\" + entry.path().filename().string();
+                    debug_w(filebackup);
+                    filesystem::copy_file(fileString, filebackup,
+                        filesystem::copy_options::overwrite_existing);
+                }
+            }            
+        }                       
+        if (s->vkCode == VK_F6) {
+            string directoryExanima;
+            if (getPathExanima().length() < 2) {
+                char* pValue;
+                size_t len;
+                _dupenv_s(&pValue, &len, "APPDATA");
+                if (pValue) {
+                    directoryExanima = pValue;
+                    directoryExanima += +"\\Exanima";
+                }
+            }
+            else                 
+                directoryExanima = getPathExanima();              
+            string directoryExanimaBackup = directoryExanima + "\\backUP";
+            for (const auto& entry : filesystem::directory_iterator(directoryExanimaBackup)) {
+                string fileStringBackup = entry.path().string();
+                if (fileStringBackup.find(".rsg") < fileStringBackup.length()) {
+                    string fileString = directoryExanima + "\\" + entry.path().filename().string();
+                    debug_w(fileString);
+                    filesystem::copy_file(fileStringBackup, fileString,
+                        filesystem::copy_options::overwrite_existing);
+                }            
+            }            
+        }  
+        if (s->vkCode == VK_F7) {
+            if(getPathExanima().length()>1)
+            debug_w(getPathExanima());
+        }
+           
+    }
+
+    return CallNextHookEx(0, code, wParam, lParam);
 }

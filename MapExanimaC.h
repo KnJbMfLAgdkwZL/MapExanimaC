@@ -5,6 +5,26 @@
 
 #define IDM_MY_MSG_UPDATE_UI (WM_APP + 4)
 
-#define ADDR_MAP_LVL ((LPVOID)0x6137C8)
-#define ADDR_X_POS ((LPVOID)0x6A7FF4)
-#define ADDR_Y_POS ((LPVOID)0x6A7FFC)
+
+
+int vpointerExanimaLVL = GetPrivateProfileInt(
+	L"MemoryAddresses",
+	L"offset_lvl_ptr ",
+	NULL,
+	L".\\assets\\config.ini");
+#define ADDR_MAP_LVL ((LPVOID)vpointerExanimaLVL)
+int vpointerExanimaX = GetPrivateProfileInt(
+	L"MemoryAddresses",
+	L"offset_x_ptr  ",
+	NULL,
+	L".\\assets\\config.ini");
+
+#define ADDR_X_POS ((LPVOID)vpointerExanimaX)
+
+int vpointerExanimaY = GetPrivateProfileInt(
+	L"MemoryAddresses",
+	L"offset_y_ptr",
+	NULL,
+	L".\\assets\\config.ini");
+
+#define ADDR_Y_POS ((LPVOID)(vpointerExanimaY))
