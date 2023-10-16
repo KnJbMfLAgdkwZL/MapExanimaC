@@ -2,15 +2,10 @@
 // Von Microsoft Visual C++ generierte Includedatei.
 // Verwendet durch MapExanimaC.rc
 //
-#define IDD_MAPEXANIMAC_DIALOG          102
 #define IDS_APP_TITLE                   103
-#define IDM_ABOUT                       104
-#define IDI_MAPEXANIMAC                 107
 #define IDC_MAPEXANIMAC                 109
-#define IDR_MAINFRAME                   128
 #define IDI_ICON                        153
 #define IDI_ICON_SMALL                  154
-#define IDC_STATIC                      -1
 
 // Next default values for new objects
 // 

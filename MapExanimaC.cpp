@@ -10,9 +10,7 @@
 #include <windowsx.h>
 #include <d2d1.h>
 #include <filesystem>
-
-
-
+#include <math.h>
 
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
 name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
@@ -26,7 +24,7 @@ using namespace std;
 int monitor_width;
 int monitor_height;
 
-
+MONITORINFO info;
 
 HINSTANCE hInst;                                // Aktuelle Instanz
 WCHAR szTitle[MAX_LOADSTRING];                  // Titelleistentext
@@ -37,7 +35,7 @@ int winSizeWidth=300, winSizeHeight=300;
 int windowPos[] = { 0,0 };
 // Globale APP Exanima Variable
 BOOL b_readMemory = TRUE;
-BOOL isCornerMap = TRUE;
+DWORD mapState = CORNERMAP;
 BYTE mapLVL = 0;
 float x_pos, y_pos;
 float Map_rec[] = { 0, 0 };
@@ -46,6 +44,7 @@ int tmpmpos[] = { 0, 0 };
 float map_size[] = { 300, 300 };
 float x_maxSize = 300.f;
 float scale = 1.0f;
+int rotateAngel = 0;
 
 //Globale Variable für Direct2D
 
@@ -57,8 +56,6 @@ ID2D1Factory* D2DFactory = NULL;
 ID2D1HwndRenderTarget* renderTarget = NULL;
 
 HWND mainWindowH;
-
-
 
 
 // Vorwärtsdeklarationen der in diesem Codemodul enthaltenen Funktionen:
@@ -110,16 +107,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     ptr_t_ReadMemoryOfExanima = &t_ReadMemoryOfExanima;
 
     //SetHOOK
-    debug_w("starte hook !!");
     HHOOK hHook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard_hook, hInstance, 0);
     wchar_t buf[256];
     FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
         NULL, GetLastError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
         buf, (sizeof(buf) / sizeof(wchar_t)), NULL);
     
-    debug_w(buf);
-
-
+    
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_MAPEXANIMAC));
    
     MSG msg;
@@ -242,38 +236,48 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {    
-    
-   
+       
     //OutputIntToHex(message);
     switch (message)
     {
         /* UPDATE UI FROM THE INFORMATION INPUT OF THE GAME EXANIMA*/
     case IDM_MY_MSG_UPDATE_UI:
-
-        if (isCornerMap) {
-            if (mapLVL > 1) {                
-                Map_rec[0] = (x_pos*scale+145);
-                Map_rec[1] = (y_pos*scale+140);
+        if (mapLVL > 1) {
+            if (mapState & FULLTRANSMAP) {
+                Map_rec[0] = (x_pos * scale + monitor_width/2);
+                Map_rec[1] = (y_pos * scale + monitor_height/2);
+                PosFig_rec[0] = monitor_width / 2 - 15;
+                PosFig_rec[1] = monitor_height / 2 - 40;
             }
-        }
-        else {
-            if (mapLVL > 1) {
-                PosFig_rec[0] = (( - x_pos-5) * scale + Map_rec[0]);
-                PosFig_rec[1] = (( - y_pos-40) * scale + Map_rec[1]);
+            
+            else if(mapState & CORNERMAP) {
+                Map_rec[0] = (x_pos * scale + 145);
+                Map_rec[1] = (y_pos * scale + 140);
+            }            
+                
+            else if (mapState & FULLMAP) {
+                if (scale > 1) {
+                    PosFig_rec[0] = ((-x_pos - 5) * scale + Map_rec[0]) + 4 * scale;
+                    PosFig_rec[1] = ((-y_pos - 40) * scale + Map_rec[1]) + 19 * scale;
+                }
+                else {
+                    PosFig_rec[0] = ((-x_pos - 5) * scale + Map_rec[0]) - 2 / scale;
+                    PosFig_rec[1] = ((-y_pos - 40) * scale + Map_rec[1]) - 7 / scale;
+                }
             }
         }
         InvalidateRect(hWnd, NULL, FALSE);
         break;
     case WM_CREATE:
         SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
-        SetLayeredWindowAttributes(hWnd, 0, (255 * 80) / 100, LWA_ALPHA);
+        SetLayeredWindowAttributes(hWnd, 0, 90, LWA_ALPHA);
         
         break;
     case WM_LBUTTONDOWN:
         //for dragging not only by the title, but also by any part of the window 
         tmpmpos[0] = GET_X_LPARAM(lParam);
         tmpmpos[1] = GET_Y_LPARAM(lParam);
-        if (isCornerMap) {
+        if (mapState & (CORNERMAP | HIDEMAP)) {            
             ReleaseCapture();
             SendMessage(hWnd, 0xA1, 2, 0);
         }
@@ -283,7 +287,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_MOUSEMOVE:
-        if (!isCornerMap && wParam == 0x0001) {
+        if ((mapState & FULLMAP) && wParam == 0x0001) {
             
             int xPos = GET_X_LPARAM(lParam);
             int yPos = GET_Y_LPARAM(lParam);
@@ -298,20 +302,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_LBUTTONDBLCLK:       
-        if (isCornerMap) {
+        if (mapState&CORNERMAP) {
             RECT rec;
             GetWindowRect(hWnd, &rec);
             windowPos[0] = rec.left;
             windowPos[1] = rec.top;
+           
         }
-        isCornerMap = !isCornerMap;
+        mapState = mapState ^ CORNERMAP;
+        mapState = mapState ^ FULLMAP;
         UpdateWindowProp();
         break;
     case WM_RBUTTONUP:
-        if (!isCornerMap) {
-            isCornerMap = !isCornerMap;
-            UpdateWindowProp();
-        }
+        if (mapState&CORNERMAP) 
+            mapState = HIDEMAP;                    
+        else 
+            mapState = CORNERMAP;        
+        UpdateWindowProp();        
         break;
     case WM_MOUSEWHEEL:
         POINT pt;
@@ -348,7 +355,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             renderTarget->BeginDraw();
             renderTarget->Clear();
 
+            
+            D2D1_POINT_2F imageCenter = D2D1::Point2F(
+                PosFig_rec[0]+10,
+                PosFig_rec[1]+45
+            );
+            if (mapState& (CORNERMAP|FULLTRANSMAP))
+            renderTarget->SetTransform(
+                D2D1::Matrix3x2F::Rotation(-rotateAngel, imageCenter)
+            );
+            
+
             if(bmp_Map)    renderTarget->DrawBitmap(bmp_Map, D2D1::RectF(Map_rec[0], Map_rec[1], Map_rec[0]+map_size[0], Map_rec[1]+map_size[1]));
+            renderTarget->SetTransform(
+                D2D1::Matrix3x2F::Rotation(0, imageCenter)
+            );
             if(bmp_PosFig) renderTarget->DrawBitmap(bmp_PosFig, D2D1::RectF(PosFig_rec[0], PosFig_rec[1], PosFig_rec[0] + 20, PosFig_rec[1] + 51));
             
             renderTarget->EndDraw();
@@ -387,9 +408,9 @@ void ReadMemoryOfExanima() {
         GetWindowThreadProcessId(hWindow, &processID);
         HANDLE hProcHandle = OpenProcess(PROCESS_VM_READ, FALSE, processID);
                 
-        //TODO change fullscreen on resolution value
+        //change fullscreen on resolution value
         HMONITOR monitor = MonitorFromWindow(hWindow, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO info;
+        
         info.cbSize = sizeof(MONITORINFO);
         GetMonitorInfo(monitor, &info);
 
@@ -399,6 +420,7 @@ void ReadMemoryOfExanima() {
         if (isToFullscreen()) {
             HideWindowBorders(hWindow);            
             SetWindowPos(hWindow, HWND_NOTOPMOST, info.rcMonitor.left, 0, monitor_width, monitor_height, SWP_NOSENDCHANGING);
+            SetWindowPos(mainWindowH, HWND_TOPMOST, info.rcMonitor.left, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
             SendMessage(hWindow, WM_EXITSIZEMOVE, 0, 0);
         }        
 
@@ -427,6 +449,7 @@ void ReadMemoryOfExanima() {
                 float flBufferY = 0.f;
 
 
+
                 ReadProcessMemory(hProcHandle, ADDR_X_POS, &flBufferX, sizeof(flBufferX), 0);
                 ReadProcessMemory(hProcHandle, ADDR_Y_POS, &flBufferY, sizeof(flBufferY), 0);
 
@@ -437,6 +460,21 @@ void ReadMemoryOfExanima() {
                 x_pos = (x_pos + getMapOffsetX(mapLVL)) * -getMapScale(mapLVL);
                 y_pos = (y_pos + getMapOffsetY(mapLVL)) * -getMapScale(mapLVL);
                 
+
+                /* ROTATE THE MAP ON CAMERA ROTATION 
+                             N  E  W  S
+                   rotatey-> 1  0  0 -1
+                   rotatex-> 0  1 -1  0
+                   values in exanima
+                */
+                ReadProcessMemory(hProcHandle, ADDR_X_ROTATE, &flBufferX, sizeof(flBufferX), 0);
+                ReadProcessMemory(hProcHandle, ADDR_Y_ROTATE, &flBufferY, sizeof(flBufferY), 0);
+
+                rotateAngel = atan2(flBufferX, flBufferY) * 180 / M_PI;
+                if (rotateAngel < 0) rotateAngel += 360;
+
+                
+
                 PostMessage(mainWindowH, IDM_MY_MSG_UPDATE_UI, 0, 0);
             }
             else {
@@ -447,50 +485,9 @@ void ReadMemoryOfExanima() {
         }        
     }
     else {      
-
-        HMONITOR monitor = MonitorFromWindow(mainWindowH, MONITOR_DEFAULTTONEAREST);
-        MONITORINFO info;
-        info.cbSize = sizeof(MONITORINFO);
-        GetMonitorInfo(monitor, &info);
-
-        monitor_width = info.rcMonitor.right - info.rcMonitor.left;
-        monitor_height = info.rcMonitor.bottom - info.rcMonitor.top;
-
-        float i = 0;
-        mapLVL = 1;      
-        while (i < 10000 && b_readMemory) {
-            
-            if (true) {
-                if (i == 100) {
-                    mapLVL = 2;
-                    bmp_Map = lbmpfromFile(getMap(mapLVL));
-                    map_size[0] = bmp_Map->GetPixelSize().width;
-                    map_size[1] = bmp_Map->GetPixelSize().height;
-                    x_maxSize = map_size[0];
-                                    
-                }
-           
-                if (i == 9000) {
-                    mapLVL = 7; 
-                    bmp_Map = lbmpfromFile(getMap(mapLVL));
-                    map_size[0] = (float)bmp_Map->GetPixelSize().width;
-                    map_size[1] = (float)bmp_Map->GetPixelSize().height;
-                    x_maxSize = map_size[0];                   
-                   
-                }               
-            }
-            if (i < 800) {
-                x_pos = -i;
-                y_pos = -i;
-            }
-            
-
-            PostMessage(mainWindowH, IDM_MY_MSG_UPDATE_UI, 0, 0);
-                        
-            this_thread::sleep_for(chrono::milliseconds(33));
-           i++;
-            
-        }
+        
+        MessageBoxW(NULL, L"Pls start Exanima [in window-mode]", L"Exanima not running!", MB_OK | MB_ICONERROR | MB_TOPMOST);
+        exit(0);
         debug_w("Exanima not started");
     }  
 }
@@ -531,91 +528,123 @@ ID2D1Bitmap* lbmpfromFile(const wchar_t* file) {
 }
 
 void UpdateWindowProp() {
-    
-    if (isCornerMap) {
-        winSizeHeight = 300, winSizeWidth = 300;
-        SetWindowPos(mainWindowH, NULL, windowPos[0], windowPos[1], winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
-        Map_rec[0] = 0;
-        Map_rec[1] = 0;
-        PosFig_rec[0] = 140;
-        PosFig_rec[1] = 100;
-    }
-    else {        
+    debug_w(mapState);
+    LONG cur_style = GetWindowLong(hWnd, GWL_EXSTYLE);
+    if (mapState&FULLTRANSMAP) {
         winSizeHeight = monitor_height, winSizeWidth = monitor_width;
-        SetWindowPos(mainWindowH, NULL, 0, 0, winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+        debug_w(monitor_width);
+        SetWindowPos(mainWindowH, NULL, info.rcMonitor.left, 0, winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+
         
-        Map_rec[0] = (x_pos - windowPos[0]  + winSizeWidth/2) * scale;
-        Map_rec[1] = (y_pos - windowPos[1]  + winSizeHeight/2) * scale;
-        
-    }    
+        SetWindowLong(hWnd, GWL_EXSTYLE, cur_style | WS_EX_TRANSPARENT | WS_EX_LAYERED);
+        SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        SetLayeredWindowAttributes(hWnd, 0, 40, LWA_ALPHA);
+    }
+    else {
+        SetWindowLong(hWnd, GWL_EXSTYLE, (GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED) & ~WS_EX_TRANSPARENT);
+        SetLayeredWindowAttributes(hWnd, 0, 150, LWA_ALPHA);
+        if (mapState&HIDEMAP) {
+            winSizeHeight = 25, winSizeWidth = 300;
+            SetWindowPos(mainWindowH, NULL, windowPos[0], windowPos[1], winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+            Map_rec[0] = 0;
+            Map_rec[1] = 0;
+        }
+        else
+            if (mapState&CORNERMAP) {
+                winSizeHeight = 300, winSizeWidth = 300;
+                SetWindowPos(mainWindowH, NULL, windowPos[0], windowPos[1], winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+                Map_rec[0] = 0;
+                Map_rec[1] = 0;
+                PosFig_rec[0] = 140;
+                PosFig_rec[1] = 100;
+            }
+            else {
+                winSizeHeight = monitor_height, winSizeWidth = monitor_width;
+                SetWindowPos(mainWindowH, NULL, 0, 0, winSizeWidth, winSizeHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+
+                Map_rec[0] = (x_pos - windowPos[0] + winSizeWidth / 2) * scale;
+                Map_rec[1] = (y_pos - windowPos[1] + winSizeHeight / 2) * scale;
+            }
+    }
+
+    
     renderTarget->Resize(D2D1::SizeU(winSizeWidth, winSizeHeight));
 }
 
 LRESULT CALLBACK keyboard_hook(int code, WPARAM wParam, LPARAM lParam) {
     
-    if (wParam == WM_KEYDOWN && GetPrivateProfileInt(
-        L"AppSettings",
-        L"quickSave",
-        NULL,
-        L".\\assets\\config.ini")) {
-        
-
+    if (wParam == WM_KEYDOWN) {
         KBDLLHOOKSTRUCT* s = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
-        if (s->vkCode == VK_F5) {
-            string directoryExanima;
-            if (getPathExanima().length() > 1) 
-                directoryExanima = getPathExanima();   
-            else {
-                char* pValue;
-                size_t len;
-                _dupenv_s(&pValue, &len, "APPDATA");
-                if (pValue) {
-                    directoryExanima = pValue;
-                    directoryExanima += +"\\Exanima";
-                } 
-            }
-            string directoryExanimaBackup = directoryExanima + "\\backUP";
-            std::filesystem::create_directories(directoryExanimaBackup);
-            for (const auto& entry : filesystem::directory_iterator(directoryExanima)) {
-                string fileString = entry.path().string();
-                if (fileString.find(".rsg") < fileString.length()) {
-                    string filebackup = directoryExanimaBackup + "\\" + entry.path().filename().string();
-                    debug_w(filebackup);
-                    filesystem::copy_file(fileString, filebackup,
-                        filesystem::copy_options::overwrite_existing);
-                }
-            }            
-        }                       
-        if (s->vkCode == VK_F6) {
-            string directoryExanima;
-            if (getPathExanima().length() < 2) {
-                char* pValue;
-                size_t len;
-                _dupenv_s(&pValue, &len, "APPDATA");
-                if (pValue) {
-                    directoryExanima = pValue;
-                    directoryExanima += +"\\Exanima";
-                }
-            }
-            else                 
-                directoryExanima = getPathExanima();              
-            string directoryExanimaBackup = directoryExanima + "\\backUP";
-            for (const auto& entry : filesystem::directory_iterator(directoryExanimaBackup)) {
-                string fileStringBackup = entry.path().string();
-                if (fileStringBackup.find(".rsg") < fileStringBackup.length()) {
-                    string fileString = directoryExanima + "\\" + entry.path().filename().string();
-                    debug_w(fileString);
-                    filesystem::copy_file(fileStringBackup, fileString,
-                        filesystem::copy_options::overwrite_existing);
-                }            
-            }            
-        }  
-        if (s->vkCode == VK_F7) {
-            if(getPathExanima().length()>1)
-            debug_w(getPathExanima());
-        }
-           
-    }
+        if (GetPrivateProfileInt(
+            L"AppSettings",
+            L"quickSave",
+            NULL,
+            L".\\assets\\config.ini")) {
 
+            if (s->vkCode == VK_F5) {
+                int result = MessageBox(NULL, L"Quick Backup? (Pls go into the Menu or pause Ingame!) ", L"Confirm", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST);
+
+                if (result == IDYES) {
+                    string directoryExanima;
+                    if (getPathExanima().length() > 1)
+                        directoryExanima = getPathExanima();
+                    else {
+                        char* pValue;
+                        size_t len;
+                        _dupenv_s(&pValue, &len, "APPDATA");
+                        if (pValue) {
+                            directoryExanima = pValue;
+                            directoryExanima += +"\\Exanima";
+                        }
+                    }
+                    string directoryExanimaBackup = directoryExanima + "\\backUP";
+                    std::filesystem::create_directories(directoryExanimaBackup);
+                    for (const auto& entry : filesystem::directory_iterator(directoryExanima)) {
+                        string fileString = entry.path().string();
+                        if (fileString.find(".rsg") < fileString.length()) {
+                            string filebackup = directoryExanimaBackup + "\\" + entry.path().filename().string();
+                            debug_w(filebackup);
+                            filesystem::copy_file(fileString, filebackup,
+                                filesystem::copy_options::overwrite_existing);
+                        }
+                    }
+                    MessageBoxW(NULL, L"Backup is created. Please remember to Backup in the Menu or pause Ingame.", L"Exanima Backup!", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+                }
+                
+            }
+            if (s->vkCode == VK_F6) {
+                string directoryExanima;
+                if (getPathExanima().length() < 2) {
+                    char* pValue;
+                    size_t len;
+                    _dupenv_s(&pValue, &len, "APPDATA");
+                    if (pValue) {
+                        directoryExanima = pValue;
+                        directoryExanima += +"\\Exanima";
+                    }
+                }
+                else
+                    directoryExanima = getPathExanima();
+                string directoryExanimaBackup = directoryExanima + "\\backUP";
+                for (const auto& entry : filesystem::directory_iterator(directoryExanimaBackup)) {
+                    string fileStringBackup = entry.path().string();
+                    if (fileStringBackup.find(".rsg") < fileStringBackup.length()) {
+                        string fileString = directoryExanima + "\\" + entry.path().filename().string();
+                        debug_w(fileString);
+                        filesystem::copy_file(fileStringBackup, fileString,
+                            filesystem::copy_options::overwrite_existing);
+                    }
+                }
+                MessageBoxW(NULL, L"Backup is loaded.", L"Exanima Backup!", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+            }
+        }
+        if (s->vkCode == 0x4D)
+        {
+            mapState ^= FULLTRANSMAP;
+
+            UpdateWindowProp();
+
+        }    
+    } 
     return CallNextHookEx(0, code, wParam, lParam);
 }
