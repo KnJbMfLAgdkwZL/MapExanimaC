@@ -613,29 +613,34 @@ LRESULT CALLBACK keyboard_hook(int code, WPARAM wParam, LPARAM lParam) {
                 
             }
             if (s->vkCode == VK_F6) {
-                string directoryExanima;
-                if (getPathExanima().length() < 2) {
-                    char* pValue;
-                    size_t len;
-                    _dupenv_s(&pValue, &len, "APPDATA");
-                    if (pValue) {
-                        directoryExanima = pValue;
-                        directoryExanima += +"\\Exanima";
+                int result = MessageBox(NULL, L"Load Backup? (It will overwrite your current saves!) ", L"Confirm", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST);
+
+                if (result == IDYES) {
+                    string directoryExanima;
+                    if (getPathExanima().length() < 2) {
+                        char* pValue;
+                        size_t len;
+                        _dupenv_s(&pValue, &len, "APPDATA");
+                        if (pValue) {
+                            directoryExanima = pValue;
+                            directoryExanima += +"\\Exanima";
+                        }
                     }
-                }
-                else
-                    directoryExanima = getPathExanima();
-                string directoryExanimaBackup = directoryExanima + "\\backUP";
-                for (const auto& entry : filesystem::directory_iterator(directoryExanimaBackup)) {
-                    string fileStringBackup = entry.path().string();
-                    if (fileStringBackup.find(".rsg") < fileStringBackup.length()) {
-                        string fileString = directoryExanima + "\\" + entry.path().filename().string();
-                        debug_w(fileString);
-                        filesystem::copy_file(fileStringBackup, fileString,
-                            filesystem::copy_options::overwrite_existing);
+                    else
+                        directoryExanima = getPathExanima();
+                    string directoryExanimaBackup = directoryExanima + "\\backUP";
+                    for (const auto& entry : filesystem::directory_iterator(directoryExanimaBackup)) {
+                        string fileStringBackup = entry.path().string();
+                        if (fileStringBackup.find(".rsg") < fileStringBackup.length()) {
+                            string fileString = directoryExanima + "\\" + entry.path().filename().string();
+                            debug_w(fileString);
+                            filesystem::copy_file(fileStringBackup, fileString,
+                                filesystem::copy_options::overwrite_existing);
+                        }
                     }
+                    MessageBoxW(NULL, L"Backup is loaded.", L"Exanima Backup!", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
+
                 }
-                MessageBoxW(NULL, L"Backup is loaded.", L"Exanima Backup!", MB_OK | MB_ICONINFORMATION | MB_TOPMOST);
             }
         }
         if (s->vkCode == 0x4D)
